@@ -1,8 +1,9 @@
-# Cylinder Duel — 1v1 online
+# Cylinder Duel — arena online
 
-Duelo 3D em primeira pessoa para **dois humanos pela internet**. Cenário branco vazio,
-cada jogador é um cilindro, um atira no outro. Three.js no cliente + servidor Node
-(WebSocket) fazendo o relay em tempo real.
+Arena 3D em primeira pessoa, **todos contra todos pela internet**. Cenário branco vazio,
+cada jogador é um cilindro. **Servidor único e fixo: todo mundo que entra cai na mesma
+arena, sem limite de jogadores.** Three.js no cliente + servidor Node (WebSocket) fazendo
+o relay em tempo real.
 
 > Um **único serviço** serve o jogo **e** a parte online — então é **um só deploy**.
 
@@ -14,8 +15,8 @@ npm start
 # abre http://localhost:3000
 ```
 
-Abra a URL, copie o link da sala (já vem com `?room=xxxxx`) e abra em **outra aba/outro PC**
-pra entrar como o segundo jogador. Os dois precisam da **mesma sala** (mesmo `?room=`).
+Abra a URL e clique **JOGAR**. Para jogar com mais gente, é só todo mundo abrir a **mesma URL**
+(em outra aba/outro PC/celular) — todos entram automaticamente na mesma arena.
 
 ## Controles
 
@@ -25,13 +26,14 @@ pra entrar como o segundo jogador. Os dois precisam da **mesma sala** (mesmo `?r
 Botão **⛶** entra em tela cheia e tenta travar na horizontal; aparece um aviso "gire o aparelho" no retrato.
 Botão **≡** volta ao menu.
 
-4 acertos abatem o oponente. A vida e o placar são autoritativos no servidor (os dois lados ficam sincronizados).
+4 acertos abatem um jogador. A vida e o placar são autoritativos no servidor (todos ficam sincronizados).
 
 ## Recursos
 
-- **Nickname** digitável (salvo no navegador), mostrado flutuando sobre o oponente e na HUD.
+- **Servidor único, todos contra todos, sem limite de jogadores.**
+- **Nickname** digitável (salvo no navegador), mostrado flutuando sobre cada jogador e no placar.
+- **Placar ao vivo** com todos os jogadores online e seus abates; contador de jogadores.
 - **FPS** e **ping** em tempo real na HUD (ping medido por eco WebSocket).
-- **Salas por link** (`?room=`), até 2 jogadores por sala.
 
 ## Hospedagem grátis (precisa rodar Node — host estático NÃO serve)
 
@@ -66,7 +68,7 @@ fly deploy
 ## Estrutura
 
 ```
-server.js          # serve /public + relay WebSocket (sala de até 2, vida/placar autoritativos)
+server.js          # serve /public + relay WebSocket (arena única, vida/placar autoritativos)
 public/index.html  # o jogo (Three.js, primeira pessoa, rede)
 package.json       # dep: ws
 render.yaml        # blueprint do Render (deploy free)
@@ -74,7 +76,9 @@ render.yaml        # blueprint do Render (deploy free)
 
 ## Notas técnicas
 
-- **Salas:** quem chega define/usa `?room=CÓDIGO`; até 2 por sala (3º recebe "sala cheia").
-- **Rede:** cada cliente manda posição/rotação ~20x/s; o servidor repassa e é autoritativo
+- **Arena única:** sem salas e sem limite — todo `join` entra no mesmo conjunto global de jogadores.
+- **Rede:** cada cliente manda posição/rotação ~20x/s; o servidor repassa para todos e é autoritativo
   na vida e no placar (acerto é detectado no cliente atirador — simples e suficiente entre amigos).
+  O relay é O(N²) por tick, ok para dezenas de jogadores num servidor hobby.
+- **Cores:** distribuídas por uma paleta de 8 (ciclam acima disso) para diferenciar os jogadores.
 - **Porta:** vem de `process.env.PORT` (exigido por Render/Fly) ou 3000 no local.

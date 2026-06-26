@@ -27,11 +27,17 @@
 
     .bar { width: 220px; height: 10px; border: 2px solid #111; border-radius: 6px; overflow: hidden; margin-top: 8px; }
     .bar > i { display: block; height: 100%; background: #111; transition: width .12s linear; }
-    #enemyBar > i { background: #e23; }
 
     #perf { margin-top: 12px; font-size: 13px; font-variant-numeric: tabular-nums; color: #333; }
     #perf b { font-weight: 700; }
     #perf .sep { opacity: .35; margin: 0 6px; }
+
+    #scoreboard { margin-top: 8px; font-size: 13px; min-width: 190px; }
+    .srow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    .srow .cdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .srow .snm { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .srow .ssc { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 20px; text-align: right; }
+    .srow.me .snm { font-weight: 700; }
 
     #damage { position: fixed; inset: 0; background: #e23; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
 
@@ -111,10 +117,8 @@
     </div>
 
     <div class="panel" id="topright">
-      <div class="label" id="enemyName">Oponente</div>
-      <div class="bar" id="enemyBar"><i style="width:100%"></i></div>
-      <div class="label" style="margin-top:14px">Placar (você × oponente)</div>
-      <div class="value"><span id="myScore">0</span> × <span id="oppScore">0</span></div>
+      <div class="label">Online: <b id="count">1</b> · Placar (abates)</div>
+      <div id="scoreboard"></div>
     </div>
 
     <div id="killfeed"></div>
@@ -138,8 +142,8 @@
   <!-- Lobby -->
   <div id="overlay">
     <div class="card">
-      <h1>Cylinder Duel — 1v1</h1>
-      <p>Duelo 3D em primeira pessoa, dois humanos pela internet. Mande o link pro seu amigo entrar na <b>mesma sala</b>.</p>
+      <h1>Cylinder Duel — Arena</h1>
+      <p>Arena 3D em primeira pessoa, <b>todos no mesmo servidor</b> (sem limite de jogadores). Mande o link pra galera entrar.</p>
 
       <div class="field">
         <label for="nick">Seu nick</label>
@@ -248,20 +252,17 @@
       if (remotes.has(p.id)) return;
       const group = makeRemote(p.color);
       group.position.set(p.x, 0, p.z); group.rotation.y = p.yaw; scene.add(group);
-      const label = document.createElement('div'); label.className = 'nametag'; label.textContent = p.name || 'Oponente';
+      const label = document.createElement('div'); label.className = 'nametag'; label.textContent = p.name || 'Jogador';
       labelsEl.appendChild(label);
-      remotes.set(p.id, { group, target: { x: p.x, z: p.z, yaw: p.yaw }, hp: p.hp ?? 100, name: p.name || 'Oponente', label });
-      refreshStatus(); updateEnemyName();
+      remotes.set(p.id, { group, target: { x: p.x, z: p.z, yaw: p.yaw }, hp: p.hp ?? 100, score: p.score ?? 0, color: p.color, name: p.name || 'Jogador', label });
+      refreshStatus(); buildScoreboard();
     }
     function removeRemote(id) {
       const r = remotes.get(id);
       if (r) { scene.remove(r.group); r.label.remove(); remotes.delete(id); }
-      refreshStatus(); updateEnemyName();
+      refreshStatus(); buildScoreboard();
     }
-    function updateEnemyName() {
-      const r = [...remotes.values()][0];
-      document.getElementById('enemyName').textContent = r ? r.name : 'Oponente';
-    }
+    function nameOf(id) { return id === me.id ? me.name : (remotes.get(id)?.name || 'Jogador'); }
 
     // ===================== INPUT TECLADO =====================
     const keys = {};
@@ -372,9 +373,8 @@
 
     // ===================== HUD =====================
     const playerBarEl = document.querySelector('#playerBar > i');
-    const enemyBarEl  = document.querySelector('#enemyBar > i');
-    const myScoreEl = document.getElementById('myScore');
-    const oppScoreEl = document.getElementById('oppScore');
+    const countEl = document.getElementById('count');
+    const scoreboardEl = document.getElementById('scoreboard');
     const dmgEl = document.getElementById('damage');
     const hitmarkerEl = document.getElementById('hitmarker');
     const statusText = document.getElementById('statusText');
@@ -385,9 +385,19 @@
 
     function updateBars() {
       playerBarEl.style.width = Math.max(0, me.hp / me.maxHp * 100) + '%';
-      const opp = [...remotes.values()][0];
-      enemyBarEl.style.width = opp ? Math.max(0, opp.hp) + '%' : '0%';
-      myScoreEl.textContent = me.score;
+    }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function buildScoreboard() {
+      countEl.textContent = remotes.size + 1;
+      const list = [{ name: me.name, score: me.score, color: me.color, me: true },
+        ...[...remotes.values()].map(r => ({ name: r.name, score: r.score, color: r.color, me: false }))];
+      list.sort((a, b) => b.score - a.score);
+      scoreboardEl.innerHTML = list.map(p =>
+        `<div class="srow${p.me ? ' me' : ''}">` +
+        `<span class="cdot" style="background:#${(p.color >>> 0).toString(16).padStart(6, '0')}"></span>` +
+        `<span class="snm">${escapeHtml(p.name)}${p.me ? ' (você)' : ''}</span>` +
+        `<span class="ssc">${p.score}</span></div>`
+      ).join('');
     }
     function flashDamage() { dmgEl.style.opacity = '.35'; setTimeout(() => dmgEl.style.opacity = '0', 80); }
     let hmTimer;
@@ -400,14 +410,14 @@
     function refreshStatus() {
       const n = remotes.size;
       if (!socketReady) { statusText.textContent = 'Conectando…'; connDot.classList.remove('on'); }
-      else if (n === 0) { statusText.textContent = 'Aguardando oponente…'; connDot.classList.add('on'); }
-      else { statusText.textContent = 'Oponente conectado'; connDot.classList.add('on'); }
+      else if (n === 0) { statusText.textContent = 'Você está sozinho no servidor'; connDot.classList.add('on'); }
+      else { statusText.textContent = `${n + 1} jogadores no servidor`; connDot.classList.add('on'); }
       const ready = socketReady;
       startBtn.classList.toggle('ready', ready);
       startBtn.textContent = ready ? 'JOGAR' : 'Conectando…';
-      lobbyDot.classList.toggle('on', socketReady && n > 0);
+      lobbyDot.classList.toggle('on', socketReady);
       lobbyText.textContent = !socketReady ? 'Conectando ao servidor…'
-        : (n > 0 ? 'Oponente na sala — pronto!' : 'Na sala. Compartilhe o link e espere alguém entrar.');
+        : (n > 0 ? `${n + 1} jogadores online agora` : 'Conectado. Pode entrar — outros aparecem ao conectar.');
     }
 
     // ===================== MOVIMENTO =====================
@@ -489,14 +499,10 @@
     }
 
     // ===================== REDE =====================
-    const params = new URLSearchParams(location.search);
-    let room = params.get('room');
-    if (!room) { room = Math.random().toString(36).slice(2, 7); history.replaceState(null, '', '?room=' + room); }
-
     const shareInput = document.getElementById('shareLink');
-    shareInput.value = location.href;
+    shareInput.value = location.origin;
     document.getElementById('copyBtn').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(location.href); document.getElementById('copyBtn').textContent = 'Copiado!'; }
+      try { await navigator.clipboard.writeText(shareInput.value); document.getElementById('copyBtn').textContent = 'Copiado!'; }
       catch { shareInput.select(); }
     });
 
@@ -522,7 +528,7 @@
       ws = new WebSocket(`${proto}://${location.host}`);
       ws.addEventListener('open', () => {
         socketReady = true;
-        ws.send(JSON.stringify({ type: 'join', room, name: me.name }));
+        ws.send(JSON.stringify({ type: 'join', name: me.name }));
         refreshStatus();
       });
       ws.addEventListener('close', () => { socketReady = false; feed('Desconectado. Reconectando…'); refreshStatus(); setTimeout(connect, 1500); });
@@ -540,10 +546,10 @@
           me.id = m.you.id; me.color = m.you.color; me.score = m.you.score; me.hp = m.you.hp;
           applySpawn(m.spawn.x, m.spawn.z, m.spawn.yaw);
           (m.players || []).forEach(addRemote);
-          updateBars(); refreshStatus(); break;
-        case 'join': addRemote(m.player); feed(`${m.player.name || 'Oponente'} entrou.`); break;
+          updateBars(); buildScoreboard(); refreshStatus(); break;
+        case 'join': addRemote(m.player); feed(`${m.player.name || 'Jogador'} entrou.`); break;
         case 'rename': {
-          const r = remotes.get(m.id); if (r) { r.name = m.name; r.label.textContent = m.name; updateEnemyName(); } break;
+          const r = remotes.get(m.id); if (r) { r.name = m.name; r.label.textContent = m.name; buildScoreboard(); } break;
         }
         case 'state': { const r = remotes.get(m.id); if (r) { r.target.x = m.x; r.target.z = m.z; r.target.yaw = m.yaw; } break; }
         case 'shoot': {
@@ -553,15 +559,19 @@
         case 'health':
           if (m.id === me.id) { me.hp = m.hp; flashDamage(); } else { const r = remotes.get(m.id); if (r) r.hp = m.hp; }
           updateBars(); break;
-        case 'kill':
-          if (m.shooter === me.id) { me.score = m.shooterScore; feed('Você abateu o oponente! 🎯'); }
-          else { oppScoreEl.textContent = m.shooterScore; feed('Você foi abatido. 💀'); }
-          updateBars(); break;
+        case 'kill': {
+          if (m.shooter === me.id) me.score = m.shooterScore;
+          else { const r = remotes.get(m.shooter); if (r) r.score = m.shooterScore; }
+          if (m.target === me.id) feed('💀 Você foi abatido por ' + nameOf(m.shooter));
+          else if (m.shooter === me.id) feed('🎯 Você abateu ' + nameOf(m.target));
+          else feed(`${nameOf(m.shooter)} abateu ${nameOf(m.target)}`);
+          buildScoreboard(); updateBars(); break;
+        }
         case 'respawn':
           if (m.id === me.id) { applySpawn(m.x, m.z, m.yaw); me.hp = m.hp; }
           else { const r = remotes.get(m.id); if (r) { r.target.x = m.x; r.target.z = m.z; r.target.yaw = m.yaw; r.group.position.set(m.x, 0, m.z); r.hp = m.hp; } }
           updateBars(); break;
-        case 'leave': removeRemote(m.id); feed('Oponente saiu.'); break;
+        case 'leave': { const nm = nameOf(m.id); removeRemote(m.id); feed(nm + ' saiu.'); break; }
       }
     }
 

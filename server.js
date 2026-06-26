@@ -1,9 +1,10 @@
 // Cylinder Duel — servidor único:
 //  1) serve os arquivos estáticos de /public (o jogo)
-//  2) faz o relay em tempo real entre os dois jogadores via WebSocket
+//  2) faz o relay em tempo real entre TODOS os jogadores via WebSocket
 //
-// Roda em qualquer host Node persistente (Render, Fly.io, Railway, VPS, local).
-// Porta vem de process.env.PORT (exigido por Render/Fly) ou 3000 no local.
+// Servidor fixo: todo mundo que entra cai na MESMA arena, sem limite de jogadores
+// (modo todos-contra-todos). Roda em qualquer host Node persistente.
+// Porta vem de process.env.PORT (Render/Fly) ou 3000 no local.
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -31,14 +32,8 @@ const server = http.createServer(async (req, res) => {
   try {
     let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
     if (urlPath === '/') urlPath = '/index.html';
-
-    // impede path traversal: resolve dentro de PUBLIC
     const filePath = normalize(join(PUBLIC, urlPath));
-    if (!filePath.startsWith(PUBLIC)) {
-      res.writeHead(403).end('Forbidden');
-      return;
-    }
-
+    if (!filePath.startsWith(PUBLIC)) { res.writeHead(403).end('Forbidden'); return; }
     const data = await readFile(filePath);
     res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] || 'application/octet-stream' });
     res.end(data);
@@ -48,35 +43,24 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// ---------- Servidor WebSocket (relay do jogo) ----------
+// ---------- Servidor WebSocket (arena única) ----------
 const wss = new WebSocketServer({ server });
 
-// Configuração do duelo
-const SLOTS = [
-  { color: 0xe23344, spawn: { x: 0, z: 20, yaw: Math.PI } },   // jogador 0: vermelho, olhando -Z
-  { color: 0x2255dd, spawn: { x: 0, z: -20, yaw: 0 } },        // jogador 1: azul, olhando +Z
-];
 const MAX_HP = 100;
 const DAMAGE = 25; // 4 acertos = abate
+// cores distintas para diferenciar os jogadores (cicla se passar de 8)
+const PALETTE = [0xe23344, 0x2255dd, 0x16a34a, 0xf59e0b, 0x9333ea, 0x0891b2, 0xdb2777, 0x111111];
 
-/** @type {Map<string, Room>} */
-const rooms = new Map();
+const players = new Map(); // id -> player (TODOS no mesmo servidor)
 let nextId = 1;
-
-class Room {
-  constructor(id) {
-    this.id = id;
-    this.players = new Map(); // id -> player
-  }
-}
+let colorIdx = 0;
 
 function summary(p) {
-  return { id: p.id, slot: p.slot, color: p.color, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, score: p.score, name: p.name };
+  return { id: p.id, color: p.color, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, score: p.score, name: p.name };
 }
-
 function randomSpawn() {
   const a = Math.random() * Math.PI * 2;
-  const r = 16 + Math.random() * 14;
+  const r = 12 + Math.random() * 22;
   return { x: Math.cos(a) * r, z: Math.sin(a) * r, yaw: Math.random() * Math.PI * 2 };
 }
 
@@ -84,17 +68,15 @@ wss.on('connection', (ws) => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
-  let room = null;
   let me = null;
 
-  const sendTo = (target, obj) => {
-    if (target.readyState === target.OPEN) target.send(JSON.stringify(obj));
-  };
+  const sendTo = (target, obj) => { if (target.readyState === target.OPEN) target.send(JSON.stringify(obj)); };
+  // transmite para todos (opcionalmente incluindo o próprio remetente)
   const broadcast = (obj, includeSelf = false) => {
-    if (!room) return;
-    for (const p of room.players.values()) {
+    const data = JSON.stringify(obj);
+    for (const p of players.values()) {
       if (!includeSelf && p === me) continue;
-      sendTo(p.ws, obj);
+      if (p.ws.readyState === p.ws.OPEN) p.ws.send(data);
     }
   };
 
@@ -102,46 +84,31 @@ wss.on('connection', (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    // ---- medição de ping (eco imediato, funciona antes mesmo de entrar) ----
-    if (msg.type === 'ping') {
-      sendTo(ws, { type: 'pong', t: msg.t });
-      return;
-    }
+    // ---- ping (eco imediato p/ medir latência) ----
+    if (msg.type === 'ping') { sendTo(ws, { type: 'pong', t: msg.t }); return; }
 
-    // ---- entrar numa sala ----
+    // ---- entrar na arena (sem sala, sem limite) ----
     if (msg.type === 'join') {
       if (me) return;
-      const roomId = String(msg.room || 'default').slice(0, 24);
-      room = rooms.get(roomId) || new Room(roomId);
-      rooms.set(roomId, room);
-
-      if (room.players.size >= 2) {
-        sendTo(ws, { type: 'full' });
-        return;
-      }
-
-      const slot = room.players.size; // 0 ou 1
-      const cfg = SLOTS[slot];
+      const sp = randomSpawn();
       me = {
         id: 'p' + (nextId++),
         ws,
-        slot,
-        color: cfg.color,
-        x: cfg.spawn.x, y: 1.7, z: cfg.spawn.z, yaw: cfg.spawn.yaw,
+        color: PALETTE[colorIdx++ % PALETTE.length],
+        x: sp.x, y: 1.7, z: sp.z, yaw: sp.yaw,
         hp: MAX_HP, score: 0,
         name: String(msg.name || 'Jogador').slice(0, 16),
       };
-      room.players.set(me.id, me);
+      players.set(me.id, me);
 
-      // manda o estado inicial pro recém-chegado (incluindo quem já está na sala)
-      const others = [...room.players.values()].filter((p) => p !== me).map(summary);
-      sendTo(ws, { type: 'init', you: summary(me), spawn: cfg.spawn, players: others });
-      // avisa os outros
+      // estado inicial com TODOS os jogadores já presentes
+      const others = [...players.values()].filter((p) => p !== me).map(summary);
+      sendTo(ws, { type: 'init', you: summary(me), spawn: sp, players: others });
       broadcast({ type: 'join', player: summary(me) });
       return;
     }
 
-    if (!me || !room) return;
+    if (!me) return;
 
     // ---- trocar de nick ----
     if (msg.type === 'setname') {
@@ -150,24 +117,23 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ---- posição/rotação (relay puro) ----
+    // ---- posição/rotação (relay para todos) ----
     if (msg.type === 'state') {
       me.x = msg.x; me.y = msg.y; me.z = msg.z; me.yaw = msg.yaw;
       broadcast({ type: 'state', id: me.id, x: me.x, y: me.y, z: me.z, yaw: me.yaw });
       return;
     }
 
-    // ---- tiro (só feedback visual no outro cliente) ----
+    // ---- tiro (feedback visual para todos) ----
     if (msg.type === 'shoot') {
       broadcast({ type: 'shoot', id: me.id, x: msg.x, y: msg.y, z: msg.z, dx: msg.dx, dy: msg.dy, dz: msg.dz });
       return;
     }
 
-    // ---- acerto: servidor é autoritativo na vida/placar ----
+    // ---- acerto: servidor autoritativo na vida/placar ----
     if (msg.type === 'hit') {
-      const target = room.players.get(msg.target);
+      const target = players.get(msg.target);
       if (!target || target === me) return;
-
       target.hp -= DAMAGE;
       if (target.hp <= 0) {
         me.score += 1;
@@ -184,15 +150,14 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (room && me) {
-      room.players.delete(me.id);
+    if (me) {
+      players.delete(me.id);
       broadcast({ type: 'leave', id: me.id });
-      if (room.players.size === 0) rooms.delete(room.id);
     }
   });
 });
 
-// mantém conexões vivas / derruba sockets mortos (importante em hosts free)
+// mantém conexões vivas / derruba sockets mortos
 const heartbeat = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
@@ -203,5 +168,5 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 server.listen(PORT, () => {
-  console.log(`Cylinder Duel rodando em http://localhost:${PORT}`);
+  console.log(`Cylinder Duel (arena única) rodando em http://localhost:${PORT}`);
 });
