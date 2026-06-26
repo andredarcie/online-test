@@ -19,8 +19,19 @@ pra entrar como o segundo jogador. Os dois precisam da **mesma sala** (mesmo `?r
 
 ## Controles
 
-- **W A S D** — mover · **Mouse** — mirar (clique pra travar o cursor) · **Clique** — atirar · **Shift** — correr
-- 4 acertos abatem o oponente. A vida e o placar são controlados pelo servidor (os dois lados ficam sincronizados).
+**Computador:** **W A S D** mover · **Mouse** mirar (clique pra travar o cursor) · **Clique** atirar · **Shift** correr
+
+**Celular / tela de toque:** dois analógicos virtuais — **esquerdo** move, **direito** mira — + botão **ATIRAR**.
+Botão **⛶** entra em tela cheia e tenta travar na horizontal; aparece um aviso "gire o aparelho" no retrato.
+Botão **≡** volta ao menu.
+
+4 acertos abatem o oponente. A vida e o placar são autoritativos no servidor (os dois lados ficam sincronizados).
+
+## Recursos
+
+- **Nickname** digitável (salvo no navegador), mostrado flutuando sobre o oponente e na HUD.
+- **FPS** e **ping** em tempo real na HUD (ping medido por eco WebSocket).
+- **Salas por link** (`?room=`), até 2 jogadores por sala.
 
 ## Hospedagem grátis (precisa rodar Node — host estático NÃO serve)
 

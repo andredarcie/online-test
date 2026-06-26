@@ -102,6 +102,12 @@ wss.on('connection', (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
+    // ---- medição de ping (eco imediato, funciona antes mesmo de entrar) ----
+    if (msg.type === 'ping') {
+      sendTo(ws, { type: 'pong', t: msg.t });
+      return;
+    }
+
     // ---- entrar numa sala ----
     if (msg.type === 'join') {
       if (me) return;
@@ -136,6 +142,13 @@ wss.on('connection', (ws) => {
     }
 
     if (!me || !room) return;
+
+    // ---- trocar de nick ----
+    if (msg.type === 'setname') {
+      me.name = String(msg.name || 'Jogador').slice(0, 16);
+      broadcast({ type: 'rename', id: me.id, name: me.name });
+      return;
+    }
 
     // ---- posição/rotação (relay puro) ----
     if (msg.type === 'state') {
