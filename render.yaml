@@ -1,0 +1,12 @@
+# Blueprint do Render — deploy "1 clique" no plano free.
+# Veja o README para o passo a passo.
+services:
+  - type: web
+    name: cylinder-duel
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
